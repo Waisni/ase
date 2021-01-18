@@ -25,7 +25,7 @@ Optional dependencies
 
 from ase.optimize.precon.precon import (Precon, Exp, C1, Pfrommer,
                                         FF, Exp_FF, make_precon,
-                                        PreconImages, SplineFit)
+                                        PreconImages, SplineFit, Hessian_Precon)
 from ase.optimize.precon.lbfgs import PreconLBFGS
 from ase.optimize.precon.fire import PreconFIRE
 
@@ -44,5 +44,5 @@ class PreconODE12r(ODE12r):
 
 
 __all__ = ['make_precon', 'PreconImages', 'SplineFit',
-           'Precon', 'Exp', 'C1', 'Pfrommer', 'FF', 'Exp_FF',
+           'Precon', 'Exp', 'C1', 'Pfrommer', 'FF', 'Exp_FF', 'Hessian_Precon'
            'PreconLBFGS', 'PreconFIRE', 'PreconODE12r']
