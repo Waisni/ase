@@ -1427,3 +1427,66 @@ class PreconImages:
         return self._spline
     
     
+class Hessian_Precon(Precon):
+    """Creates matrix which approximates the hessian matrix.
+    """
+
+    def __init__(self, calculator, terms= 255, calculate_pair_term =True, r_cut=None, r_NN=None, mu=None, mu_c=None,
+                 dim=3, c_stab=0.1,
+                 force_stab=False, recalc_mu=False, array_convention='C',
+                 solver="auto", solve_tol=1e-9,
+                 apply_positions=True, apply_cell=True,
+                 estimate_mu_eigmode=False):
+        """Initialise an Hessian_Precon preconditioner with given parameters.
+
+        Args:
+            r_cut, mu, c_stab, dim, recalc_mu, array_convention: see
+                precon.__init__()
+        """
+        Precon.__init__(self, r_cut=r_cut, r_NN=r_NN,
+                        mu=mu, mu_c=mu_c, dim=dim, c_stab=c_stab,
+                        force_stab=force_stab,
+                        recalc_mu=recalc_mu,
+                        array_convention=array_convention,
+                        solver=solver,
+                        solve_tol=solve_tol,
+                        apply_positions=apply_positions,
+                        apply_cell=apply_cell,
+                        estimate_mu_eigmode=estimate_mu_eigmode)
+        
+        self.calculator = calculator
+        self.terms = terms
+        self.calculate_pair_term = calculate_pair_term
+        self.counter = 0
+
+    def make_precon(self, atoms, recalc_mu=None):    
+        # Create the preconditioner:
+        if (self.counter >= 1 or self.P is None):
+            self._make_sparse_precon(atoms, force_stab=self.force_stab)
+            self.counter = 0
+        self.counter += 1
+        #print('--- Precon created in %s seconds ---' % (time.time() - start_time))
+        return self.P
+
+
+    def _make_sparse_precon(self, atoms, initial_assembly=False,
+                            force_stab=False):
+        """Create a sparse preconditioner matrix based on the passed atoms.
+
+        Args:
+            atoms: the Atoms object used to create the preconditioner.
+
+        Returns:
+            A scipy.sparse.csr_matrix object, representing a d*N by d*N matrix
+            (where N is the number of atoms, and d is the value of self.dim).
+            BE AWARE that using numpy.dot() with this object will result in
+            errors/incorrect results - use the .dot method directly on the
+            sparse matrix instead.
+
+        """
+        #print('creating sparse precon: initial_assembly=%r, '
+        #       'force_stab=%r, apply_positions=%r, apply_cell=%r' %
+        #       (initial_assembly, force_stab, self.apply_positions,
+        #       self.apply_cell))
+        self.P  = self.calculator.calculate_hessian_matrix(atoms, terms = self.terms, calculate_pair_term = self.calculate_pair_term)
+        return self.P
