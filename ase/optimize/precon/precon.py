@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
+from scipy.sparse.linalg import eigsh
 from scipy.interpolate import CubicSpline
 
 
@@ -1187,42 +1188,99 @@ class Hessian_Precon(SparsePrecon):
     """Creates matrix which approximates the hessian matrix.
     """
 
-    def __init__(self, calculator, terms= 255, calculate_pair_term =True, r_cut=None, r_NN=None, mu=None, mu_c=None,
-                 dim=3, c_stab=0.1,
-                 force_stab=False, recalc_mu=False, array_convention='C',
+    def __init__(self, calculator = None, terms= 255, calulate_every_x_time = 5, calculate_pair_term =True, r_cut=None, mu=None, mu_c=None, dim=3, c_stab=0.1,
+                 force_stab=False,
+                 reinitialize=False, array_convention='C',
                  solver="auto", solve_tol=1e-9,
-                 apply_positions=True, apply_cell=True,
-                 estimate_mu_eigmode=False):
+                 apply_positions=True, apply_cell=True, logfile=None):
         """Initialise an Hessian_Precon preconditioner with given parameters.
 
         Args:
             r_cut, mu, c_stab, dim, recalc_mu, array_convention: see
                 precon.__init__()
         """
-        Precon.__init__(self, r_cut=r_cut, r_NN=r_NN,
-                        mu=mu, mu_c=mu_c, dim=dim, c_stab=c_stab,
-                        force_stab=force_stab,
-                        recalc_mu=recalc_mu,
-                        array_convention=array_convention,
-                        solver=solver,
-                        solve_tol=solve_tol,
-                        apply_positions=apply_positions,
-                        apply_cell=apply_cell,
-                        estimate_mu_eigmode=estimate_mu_eigmode)
+        super().__init__(r_cut=r_cut, mu=mu, mu_c=mu_c,
+                         dim=dim, c_stab=c_stab,
+                         force_stab=force_stab,
+                         reinitialize=reinitialize,
+                         array_convention=array_convention,
+                         solver=solver, solve_tol=solve_tol,
+                         apply_positions=apply_positions,
+                         apply_cell=apply_cell,
+                         logfile=logfile)
         
         self.calculator = calculator
         self.terms = terms
+        self.calculate_every_x_time = calulate_every_x_time
         self.calculate_pair_term = calculate_pair_term
         self.counter = 0
+    
+    def set_calculator(self, calculator):
+        self.calculator = calculator
+        
+# =============================================================================
+#     def make_precon(self, atoms, reinitialize=None):
+#         if self.r_NN is None:
+#             self.r_NN = estimate_nearest_neighbour_distance(atoms,
+#                                                             self.neighbor_list)
+# 
+#         if self.r_cut is None:
+#             # This is the first time this function has been called, and no
+#             # cutoff radius has been specified, so calculate it automatically.
+#             self.r_cut = 2.0 * self.r_NN
+#         elif self.r_cut < self.r_NN:
+#             warning = ('WARNING: r_cut (%.2f) < r_NN (%.2f), '
+#                        'increasing to 1.1*r_NN = %.2f' % (self.r_cut,
+#                                                           self.r_NN,
+#                                                           1.1 * self.r_NN))
+#             warnings.warn(warning)
+#             self.r_cut = 1.1 * self.r_NN
+# 
+#         if reinitialize is None:
+#             # The caller has not specified whether or not to recalculate mu,
+#             # so the Precon's setting is used.
+#             reinitialize = self.reinitialize
+# 
+#         if self.mu is None:
+#             # Regardless of what the caller has specified, if we don't
+#             # currently have a value of mu, then we need one.
+#             reinitialize = True
+# 
+#         if reinitialize:
+#             self.estimate_mu(atoms)
+#             
+#         start_time = time.time()
+#         self._make_sparse_precon(atoms, force_stab=self.force_stab)
+#         self.logfile.write('--- Precon created in %s seconds --- \n' %
+#                            (time.time() - start_time))
+# 
+#         if self.P is not None:
+#             real_atoms = atoms
+#             if isinstance(atoms, Filter):
+#                 real_atoms = atoms.atoms
+#             if self.old_positions is None:
+#                 self.old_positions = real_atoms.positions
+#             displacement, _ = find_mic(real_atoms.positions -
+#                                        self.old_positions,
+#                                        real_atoms.cell, real_atoms.pbc)
+#             self.old_positions = real_atoms.get_positions()
+#             max_abs_displacement = abs(displacement).max()
+#             self.logfile.write('max(abs(displacements)) = %.2f A (%.2f r_NN)' %
+#                                (max_abs_displacement,
+#                                 max_abs_displacement / self.r_NN))
+#             if max_abs_displacement < 0.5 * self.r_NN:
+#                 return
+# =============================================================================
 
-    def make_precon(self, atoms, recalc_mu=None):    
+        
+
+    def make_precon(self, atoms, reinitialize=None):    
         # Create the preconditioner:
-        if (self.counter >= 1 or self.P is None):
+        if (self.counter >= self.calculate_every_x_time or self.P is None):
             self._make_sparse_precon(atoms, force_stab=self.force_stab)
             self.counter = 0
         self.counter += 1
         #print('--- Precon created in %s seconds ---' % (time.time() - start_time))
-        return self.P
 
 
     def _make_sparse_precon(self, atoms, initial_assembly=False,
@@ -1245,7 +1303,16 @@ class Hessian_Precon(SparsePrecon):
         #       (initial_assembly, force_stab, self.apply_positions,
         #       self.apply_cell))
         self.P  = self.calculator.calculate_hessian_matrix(atoms, terms = self.terms, calculate_pair_term = self.calculate_pair_term)
-        return self.P
+        val, vec = eigsh(self.P, k = 1, which= "SA")
+        a_s = 0.00001
+        a = a_s
+        for k in range(100):
+            self.P += a * sparse.eye(self.P.shape[0])
+            val, vec = eigsh(self.P, k = 1, which= "SA")
+            if (val > 0):
+                break
+            a = 1.5 * a
+        self.create_solver()
 
 
 def make_precon(precon, atoms=None, **kwargs):
